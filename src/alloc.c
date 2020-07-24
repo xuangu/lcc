@@ -55,7 +55,7 @@ void *allocate(unsigned long n, unsigned arena_no) {
             }
             pb->limit = (char *)pb + size;
         }
-        pb->avail = (char *)(sizeof(union header *)pb + 1);
+        pb->avail = (char *)(sizeof ((union header *)pb) + 1);
         pb->next = NULL;
         arena[arena_no] = pb;
     }
