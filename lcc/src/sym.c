@@ -7,9 +7,6 @@
 //
 
 #include "c.h"
-
-static int get_sym_name_hash_value(char *name);
-
 // 如下语法也是合法的，struct的声明具有文件作用域，而不是块作用域
 //struct table {
 //    int level;
@@ -37,6 +34,9 @@ struct symbol_table {
     // 该域指向当前及其外层作用域中所有符号组成的链表的表头，该链表通过symbol结构的up域链接
     Symbol header_sym;
 };
+
+static int get_sym_name_hash_value(char *name);
+static bool is_const_equal(Type ty, struct entry *entry, Value val);
 
 #define HASH_SIZE NELEMS(((SymbolTable)0)->buckets)
 
@@ -184,4 +184,102 @@ int gen_label(int n) {
     return label - n;
 }
 
+/// 源程序中的每个标号都有一个内部标号，这些内部标号和编译器产生的其它标号都保存在labels表中。对于每个函数都会建立一个这样的表，并有find_labels函数进行管理。
+/// find_label函数的输入参数是一个标号数，返回该标号对应的符号，如果需要，会建立该符号，进行初始化，并通知编译后端
+/// @param label 标号数
+Symbol find_label(int label) {
+    struct entry *entry;
+    
+    int hash = label & (HASH_SIZE - 1);
+    
+    for (entry = labels->buckets[hash]; entry; entry = entry->link) {
+        if (entry->sym.extend_info.label.val == label) {
+            return &entry->sym;
+        }
+    }
+    
+    NEW0(entry, FUNC);
+    entry->sym.extend_info.label.val = label;
+    entry->sym.scope = LABELS;
+    entry->sym.name = decimal_num_to_str(label);
+    entry->sym.generated = 1;
+    
+    entry->sym.up = labels->header_sym;
+    labels->header_sym = &entry->sym;
+    
+    entry->link = labels->buckets[hash];
+    labels->buckets[hash] = entry;
+    
+    // TODO: 通知后端，前端定义了一个符号，请求后端处理
+    
+    return &entry->sym;
+}
 
+
+/// 根据给定类型和值在constants符号表中查找常量，如果有需要，在该表中增加常量，函数返回一个指向常量符号的指针
+/// @param ty 给定类型
+/// @param val 给定值
+Symbol constant(Type ty, Value val) {
+    struct entry *entry;
+    // 为什么是取unsigned_int_val?
+    unsigned hash = val.unsigned_int_val & (HASH_SIZE - 1);
+    for (entry = constants->buckets[hash]; entry; entry = entry->link) {
+        if (equal_type(ty, entry->sym.type, 1)) {
+            if (is_const_equal(ty, entry, val)) {
+                return &entry->sym;
+            }
+        }
+    }
+    
+    // install a new constant
+    NEW0(entry, PERM);
+    entry->sym.name = get_const_name(ty, val);
+    entry->sym.scope = CONSTANTS;
+    entry->sym.type = ty;
+    entry->sym.storage_class = STATIC;
+    entry->sym.extend_info.constant.val = val;
+    
+    entry->link = constants->buckets[hash];
+    constants->buckets[hash] = entry;
+    
+    entry->sym.up = constants->header_sym;
+    constants->header_sym = &entry->sym;
+    if (ty->ex_info.sym && !ty->ex_info.sym->addressed) {
+        // TODO:
+    }
+    
+    entry->sym.defined = 1;
+    
+    return &entry->sym;
+}
+
+static bool is_const_equal(Type ty, struct entry *entry, Value val) {
+    Value ty_val = entry->sym.extend_info.constant.val;
+    switch (ty->op) {
+        case CHAR:
+            return ty_val.unsigned_char_val == val.unsigned_char_val;
+        case SHORT:
+            return ty_val.signed_short_val == val.signed_short_val;
+        case INT:
+            return ty_val.signed_int_val == val.signed_int_val;
+        case UNSIGNED:
+            return ty_val.unsigned_int_val == val.unsigned_int_val;
+        case FLOAT:
+            return ty_val.float_val == val.float_val;
+        case DOUBLE:
+            return ty_val.double_val == val.double_val;
+        case ARRAY:
+        case FUNCTION:
+        case POINTER:
+            return ty_val.pointer_val == val.pointer_val;
+        default:
+            assert(0);
+    }
+    
+    return false;
+}
+
+char *get_const_name(Type ty, Value val) {
+    // TODO:
+    return NULL;
+}

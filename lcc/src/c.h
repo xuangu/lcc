@@ -3,6 +3,8 @@
 #include <limits.h>
 #include <assert.h>
 #include <stdarg.h>
+#include <stdbool.h>
+#include "token.h"
 
 #define NELEMS(a) ((int)(sizeof (a) / sizeof ((a)[0])))
 #define roundup(x, n) (((x) + ((n) - 1)) & (~((n) - 1)))
@@ -29,6 +31,19 @@ typedef struct type *Type;
 // symbol.c
 typedef struct symbol_table *SymbolTable;
 
+// 存放常量符号的常量值
+typedef union value {
+    char signed_char_val;
+    short signed_short_val;
+    int signed_int_val;
+    unsigned char unsigned_char_val;
+    unsigned short unsigned_short_val;
+    unsigned int unsigned_int_val;
+    float float_val;
+    double double_val;
+    void *pointer_val;
+} Value;
+
 struct symbol {
     char *name;
     // 符号的作用域层级编号
@@ -41,15 +56,54 @@ struct symbol {
     List uses;
     // 符号的存储类型，可以为auto, register, static, extern, enum, typedef，对常量和标号类的符号，不使用该域
     int storage_class;
+    // flag fields，TODO:
+    // 表示由lcc内部产生的一个符号，标号符号，该域置1
+    unsigned generated: 1;
+    // 临时变量
+    unsigned temporary: 1;
+    // TODO:
+    unsigned addressed: 1;
+    // TODO: constant等符号该域置1
+    unsigned defined: 1;
+    
+    
     // 符号类型信息
     Type type;
     // 保存变量和标号的粗略引用次数
     float ref;
     // 为标号、结构和联合类型、枚举标识符、枚举类型、常量、函数、全局和静态变量、临时变量等提供附加信息
     union {
+        // 存放”标号“符号附加信息
+        struct {
+            // ”标号“符号内部表示唯一值
+            int val;
+            // 如果两个或更多的内部标号指向相同的位置，则用equated_to指向其中的一个标号
+            Symbol equated_to;
+        } label;
         
-    } u_extend_info;
+        struct {
+            Value val;
+            Symbol loc;
+        } constant;
+        
+    } extend_info;
     
+};
+
+// 类型结构，记录类型信息
+struct type {
+    // 操作符编码
+    int op;
+    // 操作数
+    Type type;
+    // 类型最小对齐字节
+    int align;
+    // 类型大小
+    int size;
+    // TODO:
+    union {
+        Symbol sym;
+    } ex_info;
 };
 
 enum { CONSTANTS = 1, LABELS, GLOBAL, PARAM, LOCAL };
@@ -95,4 +149,8 @@ extern void deallocate(unsigned arena_no);
 // types.c
 // 删除types符号表中所有大于参数lev的类型符号
 extern void rm_sym_from_types_table(int lev);
-
+extern bool is_qualified(Type ty);
+// 返回限定类型的非限定操作数
+extern Type unqualify(Type ty);
+extern bool equal_type(Type ty1, Type ty2, int arr_empty_ret_val);
+extern char *get_const_name(Type ty, Value val);
